@@ -297,40 +297,10 @@ Example:
 tail -f logs/nb_train_1gpu_<JOBID>.out
 ```
 
----
-
-## 💰 12. Accounting and billing
-
-- You are billed for **reserved resources**, not for CPU utilization.  
-- Example: a 25 min job with 1 GPU + 16 CPUs → about **10 billing hours** (0.43 h × 24 cores ≈ 10).  
-- Prices (Oct 2025):  
-  - CPU = 0.04 NOK per CPU-hour  
-  - GPU = 5.6 NOK per GPU-hour  
-- So a short test job costs only a few kroner.
 
 ---
 
-## 🧹 13. Cleanup
-
-- Old overlays (`.sqsh`) can be deleted safely once unused.  
-- Avoid storing anything in `/cluster/home/<user>`; use project space.  
-- Training outputs go in `runs/`.
-
----
-
-## 🧩 14. Troubleshooting
-
-| Symptom | Cause | Fix |
-|----------|--------|-----|
-| `Missing overlay` | Overlay not built | `sbatch build_overlay.slurm` |
-| `corrupted image: unknown compression algorithm` | Wrong compression | Rebuild overlay (uses `-comp xz`) |
-| `dataset not reachable` | Proxy missing | Proxy is set automatically; check job logs |
-| `Permission denied` | Expired Kerberos ticket | Run `kinit` |
-| `ImportError` | Missing package | Add it to requirements and rebuild |
-
----
-
-## 🧭 15. Typical workflow summary
+## 🧭 12. Typical workflow summary
 
 ```bash
 # One-time setup
