@@ -1,7 +1,28 @@
 # 🧠 Olivia Training Environment – National Library of Norway (Project nn30001k)
 
 This document explains how to set up and run **language model training on Olivia**, Norway’s national supercomputer.  
-The guide is reproducible for users at the National Library under project `nn30001k` project and is built around **Apptainer containers** and **SquashFS overlays** for reproducible environments. It might be useful for others as well, so I am putting it public.
+The guide is reproducible for users at the National Library under project `nn30001k` and is built around **Apptainer containers** and **SquashFS overlays** for reproducible environments.  
+It might be useful for others as well, so this repository is public.
+
+---
+
+## 📦 Files to download
+
+From this repository:
+
+```bash
+wget https://raw.githubusercontent.com/NbAiLab/NB-Olivia-tutorial/main/build_overlay.slurm
+wget https://raw.githubusercontent.com/NbAiLab/NB-Olivia-tutorial/main/train_single.slurm
+wget https://raw.githubusercontent.com/NbAiLab/NB-Olivia-tutorial/main/requirements_simplified.txt
+wget https://raw.githubusercontent.com/NbAiLab/NB-Olivia-tutorial/main/test_imports.py
+wget https://raw.githubusercontent.com/NbAiLab/NB-Olivia-tutorial/main/README.md
+```
+
+Place all of these files in:
+
+```
+/cluster/work/projects/nn30001k/$USER/code/
+```
 
 ---
 
@@ -11,45 +32,38 @@ Olivia’s compute nodes run Apptainer containers on a shared parallel filesyste
 Because Lustre performs poorly with many small files, we package Python environments into a **compressed read-only overlay** (`.sqsh`).  
 This overlay is mounted together with a base container at runtime.
 
-The setup consists of:
-
 | Component | Description |
 |------------|-------------|
 | `pytorch_nvidia_25.06_arm64.sif` | Base container with CUDA + PyTorch |
-| `myenv_<hash>_arm64.sqsh` | Squashed virtual environment overlay |
-| `build_overlay.slurm` | Builds the overlay from requirements |
-| `train_single.slurm` | Runs a training job |
-| `requirements_simplified.txt` | List of Python packages to install |
-| `nb-gpt-posttrain` | Training repository (Nynorsk/Bokmål SFT example) |
+| `myenv_<hash>_arm64.sqsh` | Squashed Python venv overlay |
+| `build_overlay.slurm` | Builds the overlay |
+| `train_single.slurm` | Runs training |
+| `requirements_simplified.txt` | Python requirements |
+| `test_imports.py` | Sanity test of the environment |
+| `nb-gpt-posttrain` | Example training repository (Nynorsk/Bokmål SFT) |
 
 ---
 
 ## 🧩 Directory layout
 
-Each user should work within their own directory under the shared project space:
-
 ```
-/cluster/work/projects/nn30001k/<username>/
+/cluster/work/projects/nn30001k/$USER/
 ├── apptainer_cache/       # Cache for pulled images
 ├── containers/            # Base .sif containers
 ├── overlays/              # Squashed Python venvs (.sqsh)
-├── code/                  # SLURM scripts, requirements, helper code
-├── nb-gpt-posttrain/      # Cloned training repo (large)
+├── code/                  # Scripts, requirements, helper code
+├── nb-gpt-posttrain/      # Training repo (large)
 ├── runs/                  # Output models & checkpoints
 ├── logs/                  # SLURM logs
-└── hf_cache/              # Hugging Face cache for datasets/models
+└── hf_cache/              # Hugging Face cache
 ```
 
 ---
 
 ## ⚙️ 1. Clone the training repository
-This one is a private repo. Use any training code here, just update the script below.
-
-Do **not** clone into your home directory (it has only ~20 GB).  
-Instead, clone inside your project area:
 
 ```bash
-cd /cluster/work/projects/nn30001k/<username>/
+cd /cluster/work/projects/nn30001k/$USER/
 git clone https://github.com/NationalLibraryOfNorway/nb-gpt-posttrain.git
 ```
 
@@ -58,7 +72,7 @@ git clone https://github.com/NationalLibraryOfNorway/nb-gpt-posttrain.git
 ## ⚙️ 2. Create base directories
 
 ```bash
-cd /cluster/work/projects/nn30001k/<username>/
+cd /cluster/work/projects/nn30001k/$USER/
 mkdir -p {apptainer_cache,containers,overlays,code,runs,logs,hf_cache}
 ```
 
@@ -66,10 +80,8 @@ mkdir -p {apptainer_cache,containers,overlays,code,runs,logs,hf_cache}
 
 ## ⚙️ 3. Pull the base container
 
-Run this on a **login node** (not compute node):
-
 ```bash
-export MYROOT=/cluster/work/projects/nn30001k/<username>
+export MYROOT=/cluster/work/projects/nn30001k/$USER
 export APPTAINER_CACHEDIR=$MYROOT/apptainer_cache
 
 apptainer pull --arch arm64 \
@@ -77,13 +89,11 @@ apptainer pull --arch arm64 \
   docker://nvcr.io/nvidia/pytorch:25.06-py3
 ```
 
-This downloads NVIDIA’s official PyTorch + CUDA container for ARM64 (Olivia’s architecture).
-
 ---
 
-## ⚙️ 4. Create the requirements file
+## ⚙️ 4. Create a minimal requirements file
 
-Inside your `code/` folder, create a minimal `requirements_simplified.txt`. Add here only the libraries not already contained in the pytorch_nvidia_25.06_arm64.sif:
+`requirements_simplified.txt` (already included):
 
 ```
 trl
@@ -92,30 +102,25 @@ sacrebleu
 wandb
 ```
 
-Add other packages if needed later (see section **"Updating your overlay"** below).
-
 ---
 
 ## ⚙️ 5. Build the overlay
 
-The overlay is a **SquashFS filesystem** that contains a Python virtual environment with your required packages.
-
-Submit the build job:
+Submit the job:
 
 ```bash
-cd /cluster/work/projects/nn30001k/<username>/code
+cd /cluster/work/projects/nn30001k/$USER/code
 sbatch build_overlay.slurm
 ```
 
-When finished, you should see:
+Result:
 
 ```
-/cluster/work/projects/nn30001k/<username>/overlays/myenv_<hash>_arm64.sqsh
+/cluster/work/projects/nn30001k/$USER/overlays/myenv_<hash>_arm64.sqsh
 ```
 
-### 🧮 How the overlay is named
+### Overlay naming
 
-The name is deterministic:
 ```
 myenv_<12-char SHA256 hash of requirements_simplified.txt>_arm64.sqsh
 ```
@@ -125,161 +130,82 @@ Example:
 myenv_998211f8576b_arm64.sqsh
 ```
 
-This ensures that if two users have the same requirements file, they get the same overlay name.  
-If you change the requirements file, a new hash is produced, and therefore a new overlay file is created.
-
 ---
 
 ## ⚙️ 6. Running a training job
 
-An example training job is included: `train_single.slurm`.
-
-It runs the **Bokmål → Nynorsk SFT** training script from  
-[`nb-gpt-posttrain`](https://github.com/NationalLibraryOfNorway/nb-gpt-posttrain).
-
-### Submit job
+Submit:
 
 ```bash
-cd /cluster/work/projects/nn30001k/<username>/
+cd /cluster/work/projects/nn30001k/$USER/
 sbatch code/train_single.slurm
 ```
 
-### Monitor
+Monitor:
 
 ```bash
 tail -f logs/nb_train_1gpu_*.{out,err}
 ```
 
-Outputs and checkpoints go to:
-
-```
-/cluster/work/projects/nn30001k/<username>/runs/
-```
-
-### Training command executed internally
-
-```bash
-python /cluster/work/projects/nn30001k/<username>/nb-gpt-posttrain/src/nb_gpt_posttrain/nynorsk_translation/train_sft_bokmal_nynorsk.py \
-  --model Qwen/Qwen3-0.6B \
-  --wandb_project olivia_test \
-  --run_name test1 \
-  --train_dataset NbAiLab/merged_npk_ndla_parallel_paragraphs:train \
-  --eval_dataset NbAiLab/nynorsk_norm_200eval:validation \
-  --train_source_field nb \
-  --train_target_field nn \
-  --eval_source_field nb \
-  --eval_target_field nn_husnorm \
-  --per_device_train_batch_size 8 \
-  --per_device_eval_batch_size 8 \
-  --learning_rate 2e-5 \
-  --warmup_steps 10000 \
-  --num_train_epochs 6 \
-  --eval_steps 5000 \
-  --save_steps 50000 \
-  --logging_steps 1000
-```
-
-Modify `--wandb_project`, `--run_name`, or any hyperparameters in `train_single.slurm` as needed.
-
 ---
 
-## 🧠 7. Understanding the overlay system
+## 🧠 7. Overlay system explained
 
-The overlay (`.sqsh`) is a **compressed read-only filesystem** created with `mksquashfs`.  
-It contains a Python virtual environment built on top of the read-only base container.
+The `.sqsh` file is a **read-only compressed filesystem** containing a Python virtual environment.
 
-When the job runs, Apptainer mounts both layers:
+Mount order:
 
 ```
-Base container (pytorch_nvidia_25.06_arm64.sif)
-   ↓
-Overlay (myenv_<hash>_arm64.sqsh)
-   ↓
-Merged environment inside container
+Base container (.sif)
+  ↓
+Overlay (.sqsh)
+  ↓
+Merged environment
 ```
 
-Inside the container, `/user-software` points to your overlay and contains:
+Inside the container:
 
 ```
 /user-software/bin/activate
 /user-software/lib/python3.x/site-packages/
 ```
 
-The SLURM scripts run:
-
-```bash
-source /user-software/bin/activate
-```
-
-so that your custom packages (TRL, Datasets, W&B, etc.) are available immediately.
-
 ---
 
-## 🔁 8. Updating or adding packages
+## 🔁 8. Updating packages
 
-If you need more Python packages (e.g. `peft`, `evaluate`, `huggingface_hub`):
+To add packages:
 
-1. **Edit** `requirements_simplified.txt`  
-   Example:
-   ```
-   trl
-   datasets
-   wandb
-   peft
-   evaluate
-   ```
-2. **Rebuild the overlay**  
+1. Edit `requirements_simplified.txt`
+2. Run:
    ```bash
-   cd /cluster/work/projects/nn30001k/<username>/code
+   cd /cluster/work/projects/nn30001k/$USER/code
    sbatch build_overlay.slurm
    ```
-3. A new hash will be computed automatically and a new file created, e.g.:
-   ```
-   myenv_a9b1d35a4b8e_arm64.sqsh
-   ```
-4. The training script will automatically pick the overlay matching your current `requirements_simplified.txt`.
-
-You can keep several overlays in the `overlays/` directory — each corresponds to a specific requirements configuration.
+3. A new `.sqsh` with a new hash will be created.
 
 ---
 
 ## 🌐 9. Proxy configuration
 
-Olivia requires a network proxy for external access.
-
-The SLURM scripts already export these:
+Proxy settings (already inside the SLURM scripts):
 
 ```bash
 export http_proxy=http://10.63.2.48:3128/
 export https_proxy=http://10.63.2.48:3128/
 export no_proxy="localhost,127.0.0.1,.local,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16"
-
-export APPTAINERENV_http_proxy=$http_proxy
-export APPTAINERENV_https_proxy=$https_proxy
-export APPTAINERENV_no_proxy=$no_proxy
 ```
-
-These variables are also passed **inside** the container so that `pip`, `datasets`, and `wandb` can reach the internet.
 
 ---
 
 ## 🔑 10. Hugging Face authentication
-
-For gated datasets or models:
 
 ```bash
 mkdir -p ~/.huggingface
 echo "<your_token_here>" > ~/.huggingface/token
 ```
 
-The scripts automatically read the token and export:
-
-```
-HUGGING_FACE_HUB_TOKEN
-HF_TOKEN
-```
-
-inside the container.
+The scripts automatically export `HF_TOKEN` inside the container.
 
 ---
 
@@ -287,39 +213,25 @@ inside the container.
 
 | Path | Contents |
 |------|-----------|
-| `logs/` | SLURM stdout/stderr logs |
-| `runs/` | Training outputs and checkpoints |
+| `logs/` | SLURM logs |
+| `runs/` | Training outputs |
 | `hf_cache/` | Hugging Face cache |
-
-Example:
-
-```bash
-tail -f logs/nb_train_1gpu_<JOBID>.out
-```
-
 
 ---
 
-## 🧭 12. Typical workflow summary
+## 🧭 12. Typical workflow
 
 ```bash
-# One-time setup
-cd /cluster/work/projects/nn30001k/<user>
+cd /cluster/work/projects/nn30001k/$USER/
 git clone https://github.com/NationalLibraryOfNorway/nb-gpt-posttrain.git
 mkdir -p {apptainer_cache,containers,overlays,code,runs,logs,hf_cache}
 apptainer pull --arch arm64 containers/pytorch_nvidia_25.06_arm64.sif docker://nvcr.io/nvidia/pytorch:25.06-py3
-
-# Update requirements
-echo -e "trl\ndatasets\nsacrebleu\nwandb" > code/requirements_simplified.txt
-
-# Build overlay
+wget -P code/ https://raw.githubusercontent.com/NbAiLab/NB-Olivia-tutorial/main/build_overlay.slurm
+wget -P code/ https://raw.githubusercontent.com/NbAiLab/NB-Olivia-tutorial/main/train_single.slurm
+wget -P code/ https://raw.githubusercontent.com/NbAiLab/NB-Olivia-tutorial/main/requirements_simplified.txt
+wget -P code/ https://raw.githubusercontent.com/NbAiLab/NB-Olivia-tutorial/main/test_imports.py
 sbatch code/build_overlay.slurm
-
-# Train
 sbatch code/train_single.slurm
-
-# Monitor
-tail -f logs/nb_train_1gpu_*.{out,err}
 ```
 
 ---
@@ -328,12 +240,154 @@ tail -f logs/nb_train_1gpu_*.{out,err}
 
 **Per Egil Kummervold**  
 Senior Researcher – National Library of Norway  
-Project `nn30001k`
+Project: `nn30001k`
 
 ---
-
-### In short
 
 > **The `.sif` file** is your immutable base container.  
 > **The `.sqsh` file** is your personal, versioned Python environment.  
 > Together they form a fast, reproducible setup for large-scale training on Olivia.
+
+---
+
+## 📄 Files
+
+---
+
+### 🧱 `build_overlay.slurm`
+
+```bash
+#!/bin/bash
+#SBATCH --account=nn30001k
+#SBATCH --partition=accel
+#SBATCH --time=0:30:00
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=4
+#SBATCH --mem=16G
+#SBATCH --job-name=build_overlay
+#SBATCH --output=/cluster/work/projects/nn30001k/%u/logs/build_overlay_%j.out
+#SBATCH --error=/cluster/work/projects/nn30001k/%u/logs/build_overlay_%j.err
+
+set -euxo pipefail
+
+export MYROOT=/cluster/work/projects/nn30001k/$USER
+export CODEDIR=$MYROOT/code
+export OVERLAYDIR=$MYROOT/overlays
+export CONTAINER=$MYROOT/containers/pytorch_nvidia_25.06_arm64.sif
+
+cd $CODEDIR
+
+# Compute a deterministic hash
+REQ_HASH=$(sha256sum requirements_simplified.txt | awk '{print $1}' | cut -c1-12)
+OUT_SQSH=$OVERLAYDIR/myenv_${REQ_HASH}_arm64.sqsh
+
+echo "Building overlay: $OUT_SQSH"
+
+apptainer exec --nv --bind $CODEDIR $CONTAINER bash -c "
+  python -m venv myenv --system-site-packages &&
+  source myenv/bin/activate &&
+  pip install -r requirements_simplified.txt &&
+  python test_imports.py
+"
+
+mksquashfs myenv $OUT_SQSH -comp xz
+rm -rf myenv
+echo "Overlay created: $OUT_SQSH"
+```
+
+---
+
+### 🚀 `train_single.slurm`
+
+```bash
+#!/bin/bash
+#SBATCH --account=nn30001k
+#SBATCH --partition=accel
+#SBATCH --time=4:00:00
+#SBATCH --gpus=1
+#SBATCH --cpus-per-task=16
+#SBATCH --mem=64G
+#SBATCH --job-name=nb_train_1gpu
+#SBATCH --output=/cluster/work/projects/nn30001k/%u/logs/nb_train_1gpu_%j.out
+#SBATCH --error=/cluster/work/projects/nn30001k/%u/logs/nb_train_1gpu_%j.err
+
+set -euxo pipefail
+
+export MYROOT=/cluster/work/projects/nn30001k/$USER
+export CODEDIR=$MYROOT/code
+export CONTAINER=$MYROOT/containers/pytorch_nvidia_25.06_arm64.sif
+export REQ_HASH=$(sha256sum $CODEDIR/requirements_simplified.txt | awk '{print $1}' | cut -c1-12)
+export SQSH=$MYROOT/overlays/myenv_${REQ_HASH}_arm64.sqsh
+
+export http_proxy=http://10.63.2.48:3128/
+export https_proxy=http://10.63.2.48:3128/
+export no_proxy="localhost,127.0.0.1,.local,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16"
+export APPTAINERENV_http_proxy=$http_proxy
+export APPTAINERENV_https_proxy=$https_proxy
+export APPTAINERENV_no_proxy=$no_proxy
+
+# Hugging Face token
+if [ -f ~/.huggingface/token ]; then
+  export HUGGING_FACE_HUB_TOKEN=$(tr -d '\n' < ~/.huggingface/token)
+  export HF_TOKEN=$HUGGING_FACE_HUB_TOKEN
+fi
+
+apptainer exec --nv \
+  -B $MYROOT \
+  -B $SQSH:/user-software:image-src=/ \
+  $CONTAINER \
+  bash -lc "
+  source /user-software/bin/activate &&
+  python $MYROOT/nb-gpt-posttrain/src/nb_gpt_posttrain/nynorsk_translation/train_sft_bokmal_nynorsk.py \
+    --model Qwen/Qwen3-0.6B \
+    --wandb_project olivia_test \
+    --run_name test1 \
+    --train_dataset NbAiLab/merged_npk_ndla_parallel_paragraphs:train \
+    --eval_dataset NbAiLab/nynorsk_norm_200eval:validation \
+    --train_source_field nb \
+    --train_target_field nn \
+    --eval_source_field nb \
+    --eval_target_field nn_husnorm \
+    --per_device_train_batch_size 8 \
+    --per_device_eval_batch_size 8 \
+    --learning_rate 2e-5 \
+    --warmup_steps 10000 \
+    --num_train_epochs 6 \
+    --eval_steps 5000 \
+    --save_steps 50000 \
+    --logging_steps 1000
+  "
+```
+
+---
+
+### 📋 `requirements_simplified.txt`
+
+```
+trl
+datasets
+sacrebleu
+wandb
+```
+
+---
+
+### 🧪 `test_imports.py`
+
+```python
+import os
+os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True,max_split_size_mb:128")
+
+import sacrebleu
+import torch
+import wandb
+from transformers import AutoModelForCausalLM, AutoTokenizer
+from trl import SFTConfig, SFTTrainer
+from datasets import load_dataset
+
+print("✅ All imports succeeded.")
+```
+
+---
+
+✅ **Now your Olivia setup is fully self-contained and team-ready.**
