@@ -1,8 +1,10 @@
 # 🧠 Olivia Training Environment – National Library of Norway (Project nn30001k)
 
 This document explains how to set up and run **language model training on Olivia**, Norway’s national supercomputer.  
+
 The guide is reproducible for users at the National Library under project `nn30001k` and is built around **Apptainer containers** and **SquashFS overlays** for reproducible environments.  
-It might be useful for others as well, so this repository is public.
+
+It might be useful for others as well, so this repository is public. Thanks to Magnar Bjørve at NRIS for assisting with this setup.
 
 ---
 
